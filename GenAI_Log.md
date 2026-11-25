@@ -28,4 +28,8 @@ The initial AI-generated project could not be run end to end in the drafting env
 
 ## Conversation documentation
 
-This file summarizes the interaction; it is not a verbatim conversation transcript. Before submitting, include the actual ChatGPT conversation export (for example, `GenAI_Conversation.txt`) in the repository or add its accessible share link here. Review the conversation for personal or company information before sharing it and follow course requirements for any redactions. No share link has been generated or verified in this draft.
+This file summarizes the interaction; it is not a verbatim conversation transcript. The full ChatGPT conversation is available at this share link:
+
+https://chatgpt.com/share/6b063870-146c-83ea-8cb4-c4f7489e9039
+
+The conversation was reviewed for personal information before sharing.
