@@ -160,6 +160,15 @@ go test "-run=^$" -bench . -benchmem ./...
 
 The output reports average time per query (ns/op), bytes allocated per query (B/op) and allocations per query (allocs/op). Results vary by computer.
 
+Results on my computer (Windows, 13th Gen Intel Core i7-1355U, November 24, 2026):
+
+| Benchmark | Iterations | Time per query | Memory per query | Allocations per query |
+|---|---:|---:|---:|---:|
+| `BenchmarkGenreQuery` | 566 | 1,861,491 ns (1.86 ms) | 2,913 B | 94 |
+| `BenchmarkSearchQuery` | 1,495 | 887,723 ns (0.89 ms) | 7,483 B | 388 |
+
+The genre ranking takes about twice as long because it joins and groups all 10,000 movies, while the search stops after 25 matches. The search allocates more memory because it prints 25 rows of four columns, while the genre ranking prints four rows of three columns. Both queries use only a few kilobytes of Go memory per run. These figures do not include DuckDB's own native memory.
+
 ### Manual functional tests
 
 I completed these 12 planned checks using the actual database. All passed.
