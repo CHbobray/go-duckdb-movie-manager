@@ -3,7 +3,7 @@
 Course: MSDS 431 — Data Engineering with Go
 Project: Personal Movie Collection Manager
 Repository: https://github.com/CHbobray/go-duckdb-movie-manager.git
-Tool: ChatGPT
+Tools: ChatGPT, Claude
 
 ## How I used ChatGPT
 
@@ -20,11 +20,12 @@ I provided the assignment requirements and four IMDb CSV files. I used ChatGPT t
 | Application | Suggested manual checks for menu functions and invalid inputs | Completed all 12 planned checks successfully; built and launched executable |
 | Automated tests | Expanded the suite from two to seven test functions using synthetic in-memory data | All tests passed; statement coverage increased from 4.0% to 85.1% |
 | Coverage report | Corrected PowerShell quoting for coverage arguments | Generated function-level and HTML coverage reports |
+| Rubric review (Claude) | Fixed truncated actors/roles CSVs in the repository; refactored the menu into one function per option; added comments, a missing-movie message, a simpler rating check and two benchmarks | Nine tests passed; coverage 86.2% |
 | Documentation | Helped interpret results and update README with actual measurements and repository URL | Results were taken from my local execution screenshots |
 
 ## Limitations and verification
 
-The initial AI-generated project could not be run end to end in the drafting environment. I installed the dependencies and executed the programs on my Windows computer. I provided screenshots throughout troubleshooting and testing. The final coverage report shows 100% for positiveInt and run, 90.6% for printQuery, and 0% for main, which was verified manually instead. The reported memory measurements do not represent total process memory. Optional performance comparisons were not performed.
+The initial AI-generated project could not be run end to end in the drafting environment. I installed the dependencies and executed the programs on my Windows computer. I provided screenshots throughout troubleshooting and testing. The final coverage report shows 86.2% overall: 100% for most functions, 90.0% for printQuery, 92.3% for saveCollectionItem, and 0% for main, which was verified manually instead. The reported memory measurements do not represent total process memory. Optional performance comparisons were not performed.
 
 ## Conversation documentation
 

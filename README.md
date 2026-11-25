@@ -120,13 +120,20 @@ ORDER BY average_rank DESC, g.genre;
 ## Testing and software metrics
 I ran the original two tests and found that both passed, but statement coverage was only 4.0%. I expanded the suite to seven test functions using synthetic data in an isolated in-memory DuckDB database. All tests passed and coverage increased to 85.1%. The expanded suite took 0.333 seconds on my computer.
 
+I then refactored the menu into one function per option, added rating validation and a missing-movie check, and extended the suite to nine test functions plus two benchmarks. All tests pass and coverage is 86.2%.
+
 | Function | Statement coverage |
 |---|---:|
 | `positiveInt` | 100.0% |
-| `printQuery` | 90.6% |
+| `parseRating` | 100.0% |
+| `formatValue` | 100.0% |
+| `printQuery` | 90.0% |
+| `prompt`, `promptMovieID` | 100.0% |
+| `showGenres`, `searchMovies`, `showCast`, `showCollection` | 100.0% |
+| `saveCollectionItem` | 92.3% |
 | `run` | 100.0% |
 | `main` | 0.0% |
-| Total | 85.1% |
+| Total | 86.2% |
 
 The tests exercise the underlying functions directly rather than calling `main`. I separately verified startup and exit using both `go run .` and the Windows executable. Coverage measures executed statements, not proof that every possible input works.
 
@@ -143,6 +150,16 @@ Start-Process coverage.html
 
 The quotation marks prevent Windows PowerShell from splitting the coverage filename argument.
 
+### Benchmarks
+
+`BenchmarkGenreQuery` and `BenchmarkSearchQuery` generate 10,000 synthetic movies across four genres in an in-memory database, then measure processing time and memory allocations for each query. Printed rows are discarded so only the measurements appear.
+
+```powershell
+go test "-run=^$" -bench . -benchmem ./...
+```
+
+The output reports average time per query (ns/op), bytes allocated per query (B/op) and allocations per query (allocs/op). Results vary by computer.
+
 ### Manual functional tests
 
 I completed these 12 planned checks using the actual database. All passed.
@@ -157,7 +174,7 @@ I completed these 12 planned checks using the actual database. All passed.
 | Update collection | Location changed to Home Theater - Blu-ray and rating to 9; still one record |
 | No matching records | ID 123 returned no cast records |
 | Negative ID | -1 rejected |
-| Nonexistent collection movie | ID 99999999 rejected by foreign key constraint |
+| Nonexistent collection movie | ID 99999999 rejected with "No movie with ID 99999999. Use option 2 to find a movie ID." |
 | Invalid rating | 11 rejected |
 | Invalid menu choice | 9 rejected |
 | Exit | Returned to PowerShell |
@@ -182,11 +199,12 @@ The Windows executable was 59,066,020 bytes (approximately 59.07 MB) and launche
 ## Personal collection and application design
 I would use the application to keep track of movies I own, where they are stored and how I rate them. For example, I could search for a movie, locate its ID, add it to my collection and record whether it is on a DVD shelf or in a digital library. IMDb provides general movie information, but this application lets me organize my own collection and compare my ratings with IMDb ranks. The menu provides a straightforward interface without requiring the user to write SQL.
 
-## Future development
-I would add release data after 2004, a watchlist, multiple storage locations, viewing dates, and a browser-based interface. A future recommendation system could use a user table (user_id), a reviews table (user_id, movie_id, rating, review_text, reviewed_at), and a viewing_history table (user_id, movie_id, watched_at). Genre preferences and personal ratings could support content-based recommendations. More users and their ratings would be needed for collaborative filtering. I did not perform the optional Python/Go or SQLite performance comparisons. I would also improve the technical foreign key error message by displaying a simple message telling the user that the movie ID does not exist.
+In `main.go`, each menu option is a separate function (`showGenres`, `searchMovies`, `showCast`, `saveCollectionItem`, `showCollection`), and `run` maps menu choices to these functions. Input is validated before anything is written: movie IDs must be positive whole numbers that exist in the database, locations cannot be blank, and ratings must be from 0 to 10. Database errors are logged and the menu continues. `printQuery` works with any SELECT statement and any number of columns, so it can be reused in other Go projects that query DuckDB or another `database/sql` database.
 
+## Future development
+I would add release data after 2004, a watchlist, multiple storage locations, viewing dates, and a browser-based interface. A future recommendation system could use a user table (user_id), a reviews table (user_id, movie_id, rating, review_text, reviewed_at), and a viewing_history table (user_id, movie_id, watched_at). Genre preferences and personal ratings could support content-based recommendations. More users and their ratings would be needed for collaborative filtering. I did not perform the optional Python/Go or SQLite performance comparisons.
 ## GenAI Tools
-I used ChatGPT to help inspect the CSV files, design the schema, draft the Python loader and Go application, develop and expand automated tests, troubleshoot Windows compiler and PowerShell errors, and prepare the documentation. I ran the application and tests on my Windows computer and supplied screenshots of the actual results. The first draft could not be executed in the AI drafting environment, but I verified the results locally. See [GenAI_Log.md](GenAI_Log.md) for a summary of the assistance. The full conversation is available at https://chatgpt.com/share/6b063870-146c-83ea-8cb4-c4f7489e9039.
+I used ChatGPT to help inspect the CSV files, design the schema, draft the Python loader and Go application, develop and expand automated tests, troubleshoot Windows compiler and PowerShell errors, and prepare the documentation. I ran the application and tests on my Windows computer and supplied screenshots of the actual results. The first draft could not be executed in the AI drafting environment, but I verified the results locally. See [GenAI_Log.md](GenAI_Log.md) for a summary of the assistance. The full conversation is available at https://chatgpt.com/share/6b063870-146c-83ea-8cb4-c4f7489e9039. I later used Claude to review the project against the grading rubric, fix two CSV files that were truncated when moved on GitHub, refactor `main.go`, and add tests and benchmarks; I reran the tests locally after those changes.
 
 ## References
 - Course-provided Northwestern IMDb files: https://arch.library.northwestern.edu/concern/datasets/3484zh40n?locale=en

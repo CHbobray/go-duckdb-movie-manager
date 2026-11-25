@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">movie-manager/main.go (85.1%)</option>
+				<option value="file0">movie-manager/main.go (86.2%)</option>
 				
 				</select>
 			</div>
@@ -69,175 +69,310 @@
 		</div>
 		<div id="content">
 		
-		<pre class="file" id="file0" style="display: none">package main
+		<pre class="file" id="file0" style="display: none">// Command movie-manager is a menu-driven application for exploring the IMDb
+// movie database created by load_data.py and managing a personal collection.
+package main
 
 import (
         "bufio"
         "database/sql"
+        "errors"
         "fmt"
-        _ "github.com/marcboeker/go-duckdb"
         "log"
+        "math"
         "os"
         "runtime"
         "strconv"
         "strings"
         "time"
+
+        _ "github.com/marcboeker/go-duckdb" // registers the "duckdb" database/sql driver
 )
 
+// minGenreMovies excludes genres with too few movies for a meaningful average.
+const minGenreMovies = 20
+
+// genreQuery ranks genres by average IMDb rank. A movie with several genres
+// counts toward each of them.
 const genreQuery = `SELECT g.genre, COUNT(*) AS movie_count, ROUND(AVG(m.rank), 2) AS average_rank
 FROM movies m JOIN genres g ON m.movie_id = g.movie_id
 GROUP BY g.genre HAVING COUNT(*) &gt;= ? ORDER BY average_rank DESC, g.genre`
-const searchQuery = `SELECT movie_id, name, year, rank FROM movies WHERE name ILIKE '%' || ? || '%' ORDER BY rank DESC, movie_id LIMIT 25`
-const castQuery = `SELECT a.first_name, a.last_name, COALESCE(r.role, '(not recorded)') FROM actors a JOIN roles r ON a.actor_id=r.actor_id WHERE r.movie_id=? ORDER BY a.last_name, a.first_name LIMIT 100`
-const collectionQuery = `SELECT m.movie_id, m.name, c.location, c.personal_rating FROM collection c JOIN movies m ON c.movie_id=m.movie_id ORDER BY m.name`
 
-func positiveInt(s string) (int, error) {
-        <span class="cov8" title="1">n, err := strconv.Atoi(strings.TrimSpace(s))
-        if err != nil || n &lt;= 0 </span>{
-                <span class="cov8" title="1">return 0, fmt.Errorf("enter a positive whole number")
-</span>        }
-        <span class="cov8" title="1">return n, nil</span>
+// searchQuery finds up to 25 movies whose title contains the search term,
+// ignoring case, with the highest-ranked movies first.
+const searchQuery = `SELECT movie_id, name, year, rank FROM movies
+WHERE name ILIKE '%' || ? || '%'
+ORDER BY rank DESC, movie_id LIMIT 25`
+
+// castQuery lists up to 100 actors and their roles for one movie.
+// Missing role descriptions are shown as "(not recorded)".
+const castQuery = `SELECT a.first_name, a.last_name, COALESCE(r.role, '(not recorded)') AS role
+FROM actors a JOIN roles r ON a.actor_id = r.actor_id
+WHERE r.movie_id = ? ORDER BY a.last_name, a.first_name LIMIT 100`
+
+// collectionQuery lists the personal collection alphabetically by title.
+const collectionQuery = `SELECT m.movie_id, m.name, c.location, c.personal_rating
+FROM collection c JOIN movies m ON c.movie_id = m.movie_id ORDER BY m.name`
+
+// movieExistsQuery checks that a movie ID is valid before it is saved.
+const movieExistsQuery = `SELECT EXISTS (SELECT 1 FROM movies WHERE movie_id = ?)`
+
+// saveCollectionQuery adds a movie to the collection, or updates the location
+// and rating if the movie is already there, so each movie appears only once.
+const saveCollectionQuery = `INSERT INTO collection VALUES (?, ?, ?)
+ON CONFLICT (movie_id) DO UPDATE SET location = excluded.location, personal_rating = excluded.personal_rating`
+
+// menuText lists the choices shown before each prompt.
+const menuText = `
+1. Highest-rated genres
+2. Search movies
+3. Find movie cast
+4. Add or update collection item
+5. View collection
+0. Exit`
+
+// errInputEnded signals that standard input closed, so the menu should stop.
+var errInputEnded = errors.New("input ended")
+
+// positiveInt converts user text to a whole number greater than zero.
+func positiveInt(text string) (int, error) <span class="cov8" title="1">{
+        number, err := strconv.Atoi(strings.TrimSpace(text))
+        if err != nil || number &lt;= 0 </span><span class="cov8" title="1">{
+                return 0, fmt.Errorf("enter a positive whole number")
+        }</span>
+        <span class="cov8" title="1">return number, nil</span>
 }
 
-// printQuery displays arbitrary query results and records elapsed time.
-func printQuery(db *sql.DB, query string, args ...any) error {
-        <span class="cov8" title="1">start := time.Now()
+// parseRating converts user text to a rating from 0 to 10.
+// Blank text returns nil, which is stored as NULL (not rated).
+func parseRating(text string) (any, error) <span class="cov8" title="1">{
+        text = strings.TrimSpace(text)
+        if text == "" </span><span class="cov8" title="1">{
+                return nil, nil
+        }</span>
+        <span class="cov8" title="1">rating, err := strconv.ParseFloat(text, 64)
+        if err != nil || math.IsNaN(rating) || rating &lt; 0 || rating &gt; 10 </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("rating must be between 0 and 10")
+        }</span>
+        <span class="cov8" title="1">return rating, nil</span>
+}
+
+// formatValue turns a database value into display text. NULL appears only in
+// the personal_rating column, so it is shown as "(not rated)".
+func formatValue(value any) string <span class="cov8" title="1">{
+        if value == nil </span><span class="cov8" title="1">{
+                return "(not rated)"
+        }</span>
+        <span class="cov8" title="1">return fmt.Sprint(value)</span>
+}
+
+// printQuery runs any SELECT statement and prints its rows as a
+// pipe-separated table. It works with any number of columns, so it can be
+// reused for other queries and databases. Elapsed time, row count and current
+// Go heap use are written to the log.
+func printQuery(db *sql.DB, query string, args ...any) error <span class="cov8" title="1">{
+        start := time.Now()
         rows, err := db.Query(query, args...)
-        if err != nil </span>{
-                <span class="cov8" title="1">return err
-</span>        }
+        if err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
         <span class="cov8" title="1">defer rows.Close()
-        cols, err := rows.Columns()
-        if err != nil </span>{
-                <span class="cov0" title="0">return err
-</span>        }
-        <span class="cov8" title="1">fmt.Println(strings.Join(cols, " | "))
-        count := 0
-        for rows.Next() </span>{
-                <span class="cov8" title="1">values := make([]any, len(cols))
-                pointers := make([]any, len(cols))
-                for i := range values </span>{
-                        <span class="cov8" title="1">pointers[i] = &amp;values[i]
-</span>                }
-                <span class="cov8" title="1">if err := rows.Scan(pointers...); err != nil </span>{
-                        <span class="cov0" title="0">return err
-</span>                }
-                <span class="cov8" title="1">parts := make([]string, len(cols))
-                for i, v := range values </span>{
-                        <span class="cov8" title="1">if v == nil </span>{
-                                <span class="cov8" title="1">parts[i] = "(not rated)"
-</span>                        } else {
-                                <span class="cov8" title="1">parts[i] = fmt.Sprint(v)
-</span>                        }
-                }
-                <span class="cov8" title="1">fmt.Println(strings.Join(parts, " | "))
-                count++</span>
+
+        columns, err := rows.Columns()
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">fmt.Println(strings.Join(columns, " | "))
+
+        // Scan into generic values because the column types differ by query.
+        values := make([]any, len(columns))
+        pointers := make([]any, len(columns))
+        for i := range values </span><span class="cov8" title="1">{
+                pointers[i] = &amp;values[i]
+        }</span>
+        <span class="cov8" title="1">rowCount := 0
+        for rows.Next() </span><span class="cov8" title="1">{
+                if err := rows.Scan(pointers...); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">cells := make([]string, len(values))
+                for i, value := range values </span><span class="cov8" title="1">{
+                        cells[i] = formatValue(value)
+                }</span>
+                <span class="cov8" title="1">fmt.Println(strings.Join(cells, " | "))
+                rowCount++</span>
         }
-        <span class="cov8" title="1">if err := rows.Err(); err != nil </span>{
-                <span class="cov0" title="0">return err
-</span>        }
-        <span class="cov8" title="1">if count == 0 </span>{
-                <span class="cov8" title="1">fmt.Println("No matching records.")
-</span>        }
-        <span class="cov8" title="1">var mem runtime.MemStats
-        runtime.ReadMemStats(&amp;mem)
-        log.Printf("Rows: %d; elapsed: %s; Go heap: %.2f MiB", count, time.Since(start), float64(mem.Alloc)/1048576)
+        <span class="cov8" title="1">if err := rows.Err(); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">if rowCount == 0 </span><span class="cov8" title="1">{
+                fmt.Println("No matching records.")
+        }</span>
+
+        <span class="cov8" title="1">var memory runtime.MemStats
+        runtime.ReadMemStats(&amp;memory)
+        log.Printf("Rows: %d; elapsed: %s; Go heap: %.2f MiB", rowCount, time.Since(start), float64(memory.Alloc)/(1&lt;&lt;20))
         return nil</span>
 }
 
-func run(db *sql.DB, in *bufio.Scanner) {
-        <span class="cov8" title="1">for </span>{
-                <span class="cov8" title="1">fmt.Println("\n1. Highest-rated genres\n2. Search movies\n3. Find movie cast\n4. Add or update collection item\n5. View collection\n0. Exit")
-                fmt.Print("Choice: ")
-                if !in.Scan() </span>{
-                        <span class="cov8" title="1">return
-</span>                }
-                <span class="cov8" title="1">choice := strings.TrimSpace(in.Text())
-                var err error
-                switch choice </span>{
-                case "0":
-                        <span class="cov8" title="1">return</span>
-                case "1":
-                        <span class="cov8" title="1">err = printQuery(db, genreQuery, 20)</span>
-                case "2":
-                        <span class="cov8" title="1">fmt.Print("Movie title: ")
-                        if !in.Scan() </span>{
-                                <span class="cov8" title="1">return
-</span>                        }
-                        <span class="cov8" title="1">term := strings.TrimSpace(in.Text())
-                        if term == "" </span>{
-                                <span class="cov8" title="1">fmt.Println("Enter a movie title.")
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">err = printQuery(db, searchQuery, term)</span>
-                case "3", "4":
-                        <span class="cov8" title="1">fmt.Print("Movie ID: ")
-                        if !in.Scan() </span>{
-                                <span class="cov8" title="1">return
-</span>                        }
-                        <span class="cov8" title="1">id, parseErr := positiveInt(in.Text())
-                        if parseErr != nil </span>{
-                                <span class="cov8" title="1">fmt.Println(parseErr)
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">if choice == "3" </span>{
-                                <span class="cov8" title="1">err = printQuery(db, castQuery, id)
-                                break</span>
-                        }
-                        <span class="cov8" title="1">fmt.Print("Collection location: ")
-                        if !in.Scan() </span>{
-                                <span class="cov8" title="1">return
-</span>                        }
-                        <span class="cov8" title="1">location := strings.TrimSpace(in.Text())
-                        if location == "" </span>{
-                                <span class="cov8" title="1">fmt.Println("Location cannot be empty.")
-                                continue</span>
-                        }
-                        <span class="cov8" title="1">fmt.Print("Personal rating (0-10, blank if unrated): ")
-                        if !in.Scan() </span>{
-                                <span class="cov8" title="1">return
-</span>                        }
-                        <span class="cov8" title="1">var rating any
-                        raw := strings.TrimSpace(in.Text())
-                        if raw != "" </span>{
-                                <span class="cov8" title="1">v, e := strconv.ParseFloat(raw, 64)
-                                if e != nil || !(v &gt;= 0 &amp;&amp; v &lt;= 10) </span>{
-                                        <span class="cov8" title="1">fmt.Println("Rating must be between 0 and 10.")
-                                        continue</span>
-                                }
-                                <span class="cov8" title="1">rating = v</span>
-                        }
-                        <span class="cov8" title="1">_, err = db.Exec(`INSERT INTO collection VALUES (?, ?, ?) ON CONFLICT(movie_id) DO UPDATE SET location=excluded.location, personal_rating=excluded.personal_rating`, id, location, rating)
-                        if err == nil </span>{
-                                <span class="cov8" title="1">fmt.Println("Collection saved.")
-</span>                        }
-                case "5":
-                        <span class="cov8" title="1">err = printQuery(db, collectionQuery)</span>
-                default:
-                        <span class="cov8" title="1">fmt.Println("Choose a number from 0 to 5.")</span>
+// menu holds the database connection and the source of user input.
+type menu struct {
+        db    *sql.DB
+        input *bufio.Scanner
+}
+
+// prompt shows a label and returns the trimmed line the user typed.
+// It returns errInputEnded when no more input is available.
+func (m menu) prompt(label string) (string, error) <span class="cov8" title="1">{
+        fmt.Print(label)
+        if !m.input.Scan() </span><span class="cov8" title="1">{
+                return "", errInputEnded
+        }</span>
+        <span class="cov8" title="1">return strings.TrimSpace(m.input.Text()), nil</span>
+}
+
+// promptMovieID asks for a movie ID. ok is false when the user typed an
+// invalid ID; the explanation has already been printed.
+func (m menu) promptMovieID() (id int, ok bool, err error) <span class="cov8" title="1">{
+        text, err := m.prompt("Movie ID: ")
+        if err != nil </span><span class="cov8" title="1">{
+                return 0, false, err
+        }</span>
+        <span class="cov8" title="1">id, parseErr := positiveInt(text)
+        if parseErr != nil </span><span class="cov8" title="1">{
+                fmt.Println(parseErr)
+                return 0, false, nil
+        }</span>
+        <span class="cov8" title="1">return id, true, nil</span>
+}
+
+// showGenres prints the genre rankings (menu option 1).
+func (m menu) showGenres() error <span class="cov8" title="1">{
+        return printQuery(m.db, genreQuery, minGenreMovies)
+}</span>
+
+// searchMovies asks for part of a title and prints matching movies (option 2).
+func (m menu) searchMovies() error <span class="cov8" title="1">{
+        title, err := m.prompt("Movie title: ")
+        if err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+        <span class="cov8" title="1">if title == "" </span><span class="cov8" title="1">{
+                fmt.Println("Enter a movie title.")
+                return nil
+        }</span>
+        <span class="cov8" title="1">return printQuery(m.db, searchQuery, title)</span>
+}
+
+// showCast asks for a movie ID and prints its actors and roles (option 3).
+func (m menu) showCast() error <span class="cov8" title="1">{
+        id, ok, err := m.promptMovieID()
+        if err != nil || !ok </span><span class="cov8" title="1">{
+                return err
+        }</span>
+        <span class="cov8" title="1">return printQuery(m.db, castQuery, id)</span>
+}
+
+// saveCollectionItem asks for a movie ID, a storage location and an optional
+// rating, then adds or updates that movie in the collection (option 4).
+// Each input is checked before anything is written.
+func (m menu) saveCollectionItem() error <span class="cov8" title="1">{
+        id, ok, err := m.promptMovieID()
+        if err != nil || !ok </span><span class="cov8" title="1">{
+                return err
+        }</span>
+        <span class="cov8" title="1">var exists bool
+        if err := m.db.QueryRow(movieExistsQuery, id).Scan(&amp;exists); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">if !exists </span><span class="cov8" title="1">{
+                fmt.Printf("No movie with ID %d. Use option 2 to find a movie ID.\n", id)
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">location, err := m.prompt("Collection location: ")
+        if err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+        <span class="cov8" title="1">if location == "" </span><span class="cov8" title="1">{
+                fmt.Println("Location cannot be empty.")
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">ratingText, err := m.prompt("Personal rating (0-10, blank if unrated): ")
+        if err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+        <span class="cov8" title="1">rating, ratingErr := parseRating(ratingText)
+        if ratingErr != nil </span><span class="cov8" title="1">{
+                fmt.Println("Rating must be between 0 and 10.")
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">if _, err := m.db.Exec(saveCollectionQuery, id, location, rating); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">fmt.Println("Collection saved.")
+        return nil</span>
+}
+
+// showCollection prints the personal collection (option 5).
+func (m menu) showCollection() error <span class="cov8" title="1">{
+        return printQuery(m.db, collectionQuery)
+}</span>
+
+// run shows the menu until the user chooses 0 or input ends. Database errors
+// are logged and the menu continues, so one failed action does not end the
+// program.
+func run(db *sql.DB, input *bufio.Scanner) <span class="cov8" title="1">{
+        m := menu{db: db, input: input}
+        actions := map[string]func() error{
+                "1": m.showGenres,
+                "2": m.searchMovies,
+                "3": m.showCast,
+                "4": m.saveCollectionItem,
+                "5": m.showCollection,
+        }
+        for </span><span class="cov8" title="1">{
+                fmt.Println(menuText)
+                choice, err := m.prompt("Choice: ")
+                if err != nil || choice == "0" </span><span class="cov8" title="1">{
+                        return
+                }</span>
+                <span class="cov8" title="1">action, found := actions[choice]
+                if !found </span><span class="cov8" title="1">{
+                        fmt.Println("Choose a number from 0 to 5.")
+                        continue</span>
                 }
-                <span class="cov8" title="1">if err != nil </span>{
-                        <span class="cov8" title="1">log.Printf("Operation failed: %v", err)
-</span>                }
+                <span class="cov8" title="1">err = action()
+                if errors.Is(err, errInputEnded) </span><span class="cov8" title="1">{
+                        return
+                }</span>
+                <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
+                        log.Printf("Operation failed: %v", err)
+                }</span>
         }
 }
 
-func main() {
-        <span class="cov0" title="0">path := "movies.duckdb"
-        if len(os.Args) &gt; 1 </span>{
-                <span class="cov0" title="0">path = os.Args[1]
-</span>        }
-        <span class="cov0" title="0">if _, err := os.Stat(path); err != nil </span>{
-                <span class="cov0" title="0">log.Fatalf("Database unavailable: %v. Run python load_data.py first.", err)
-</span>        }
+// main opens the database (movies.duckdb, or the path given as the first
+// argument) and starts the menu.
+func main() <span class="cov0" title="0">{
+        path := "movies.duckdb"
+        if len(os.Args) &gt; 1 </span><span class="cov0" title="0">{
+                path = os.Args[1]
+        }</span>
+        // sql.Open would silently create an empty database, so check first.
+        <span class="cov0" title="0">if _, err := os.Stat(path); err != nil </span><span class="cov0" title="0">{
+                log.Fatalf("Database unavailable: %v. Run python load_data.py first.", err)
+        }</span>
         <span class="cov0" title="0">db, err := sql.Open("duckdb", path)
-        if err != nil </span>{
-                <span class="cov0" title="0">log.Fatal(err)
-</span>        }
+        if err != nil </span><span class="cov0" title="0">{
+                log.Fatal(err)
+        }</span>
         <span class="cov0" title="0">defer db.Close()
-        if err = db.Ping(); err != nil </span>{
-                <span class="cov0" title="0">log.Fatal(err)
-</span>        }
+        if err := db.Ping(); err != nil </span><span class="cov0" title="0">{
+                log.Fatal(err)
+        }</span>
         <span class="cov0" title="0">run(db, bufio.NewScanner(os.Stdin))</span>
 }
 </pre>
