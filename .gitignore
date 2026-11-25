@@ -5,3 +5,4 @@ __pycache__/
 /movie-manager
 /movie-manager.exe
 *.app/
+data/*.csv

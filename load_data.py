@@ -15,7 +15,18 @@ SCHEMAS = {
 }
 
 
+def csv_path(table):
+    """Return the expected location of one course-provided CSV file."""
+    return ROOT / 'data' / f'aan520_w5a_{table}2000After.csv'
+
+
 def load_database():
+    # Check the CSV files before creating the database, so a missing file
+    # does not leave behind an empty movies.duckdb that blocks the next run.
+    missing = [csv_path(table).name for table in SCHEMAS if not csv_path(table).exists()]
+    if missing:
+        raise SystemExit('Missing data files in data/: ' + ', '.join(missing)
+                         + '. Download them from the course assignment page (see README).')
     target = ROOT / 'movies.duckdb'
     if target.exists():
         raise FileExistsError('Database already exists. Back it up before rebuilding.')
@@ -27,7 +38,7 @@ def load_database():
         try:
             db.execute((ROOT / 'schema.sql').read_text())
             for table, schema in SCHEMAS.items():
-                path = ROOT / 'data' / f'aan520_w5a_{table}2000After.csv'
+                path = csv_path(table)
                 frame = pl.read_csv(path, schema_overrides=schema).select(list(schema))
                 db.register('source', frame.to_arrow())
                 projection = 'row_number() OVER (), actor_id, movie_id, role' if table == 'roles' else ', '.join(schema)

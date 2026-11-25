@@ -8,7 +8,7 @@ Repository: https://github.com/CHbobray/go-duckdb-movie-manager.git
 This project explores how Python and Go can work together through DuckDB. Python reads four IMDb CSV files into Polars DataFrames and stores them in a relational database. Go provides a command-line application for searching movies, comparing genre ratings, finding cast members, and managing a personal collection.
 
 ## Repository organization
-- `data/`: four course-provided CSV files
+- `data/`: location for the four course-provided CSV files (not included; see Setup)
 - `schema.sql`: relational schema and constraints
 - `load_data.py`: Python/Polars database loader
 - `requirements.txt`: Python dependencies
@@ -32,14 +32,14 @@ git clone https://github.com/CHbobray/go-duckdb-movie-manager.git
 cd go-duckdb-movie-manager
 ```
 
-Place the four course-provided CSV files in `data/` if they are not included in the clone:
+The four CSV files are not included in this repository. They are course-provided IMDb data, and I have not confirmed permission to redistribute them. Download them from the MSDS 431 assignment page and place them in `data/`:
 
 - `aan520_w5a_movies2000After.csv`
 - `aan520_w5a_actors2000After.csv`
 - `aan520_w5a_genres2000After.csv`
 - `aan520_w5a_roles2000After.csv`
 
-Obtain these edited files from the course assignment. The Northwestern archive is listed under References; check redistribution permissions before publishing the CSV files.
+The files are edited subsets of the Northwestern University IMDb archive listed under References. `.gitignore` excludes `data/*.csv`, so the files are not committed again by accident. If any file is missing, `load_data.py` stops before creating the database and lists the missing files. When all four are present, the loader reports 11,502 movies, 130,002 actors, 18,548 genres and 203,027 roles.
 
 ### Windows compiler setup
 
